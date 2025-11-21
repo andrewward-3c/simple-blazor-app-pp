@@ -6,6 +6,7 @@ module.exports = {
     './Shared/**/*.razor',
     './Components/**/*.razor'
   ],
+  darkMode: 'class',
   theme: {
     extend: {
       colors: {

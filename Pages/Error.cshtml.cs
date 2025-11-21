@@ -12,15 +12,20 @@ public class ErrorModel : PageModel
 
     public bool ShowRequestId => !string.IsNullOrEmpty(RequestId);
 
-    private readonly ILogger<ErrorModel> _logger;
+    public bool IsDevelopment { get; set; }
 
-    public ErrorModel(ILogger<ErrorModel> logger)
+    private readonly ILogger<ErrorModel> _logger;
+    private readonly IWebHostEnvironment _environment;
+
+    public ErrorModel(ILogger<ErrorModel> logger, IWebHostEnvironment environment)
     {
         _logger = logger;
+        _environment = environment;
     }
 
     public void OnGet()
     {
         RequestId = Activity.Current?.Id ?? HttpContext.TraceIdentifier;
+        IsDevelopment = _environment.IsDevelopment();
     }
 }
