@@ -1,0 +1,330 @@
+﻿@page "/"
+@using PokerPlanning.Services
+@using Microsoft.JSInterop
+@inject IGameService GameService
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Poker Planning</PageTitle>
+
+<div class="min-h-screen @GetGradientClasses() flex items-center justify-center p-4">
+    <div class="max-w-2xl w-full">
+        <!-- Theme Toggle and Color Picker -->
+        <div class="flex justify-end gap-2 mb-4">
+            <div class="relative">
+                <button @onclick="() => showColorPicker = !showColorPicker" 
+                        class="p-3 bg-white/10 dark:bg-gray-800/50 backdrop-blur-md rounded-full text-white hover:bg-white/20 dark:hover:bg-gray-700/50 transition-all">
+                    <span class="text-2xl">🎨</span>
+                </button>
+                @if (showColorPicker)
+                {
+                    <div class="absolute right-0 mt-2 bg-white dark:bg-gray-800 rounded-lg shadow-xl p-3 z-10 min-w-[140px] border border-gray-200 dark:border-gray-700">
+                        @foreach (var themeKv in colorThemes)
+                        {
+                            <button @onclick="() => ChangeColorTheme(themeKv.Key)"
+                                    class="flex items-center gap-3 w-full text-left px-3 py-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+                                <span class="@themeKv.Value.DotClass w-4 h-4 rounded-full"></span>
+                                <span class="text-gray-800 dark:text-gray-200">@themeKv.Value.Name</span>
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
+            <button @onclick="ToggleTheme" 
+                    class="p-3 bg-white/10 dark:bg-gray-800/50 backdrop-blur-md rounded-full text-white hover:bg-white/20 dark:hover:bg-gray-700/50 transition-all">
+                @if (isDarkMode)
+                {
+                    <span class="text-2xl">☀️</span>
+                }
+                else
+                {
+                    <span class="text-2xl">🌙</span>
+                }
+            </button>
+        </div>
+        
+        <div class="text-center mb-12 animate-fade-in">
+            <div class="flex items-center justify-center gap-4 mb-4">
+                <svg class="w-20 h-20 text-white" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+                    <title>Blazor SVG Icon</title>
+                    <path fill="currentColor" d="M23.834 8.101a13.91 13.91 0 0 1-13.643 11.72a10 10 0 0 1-1.994-.12a6.11 6.11 0 0 1-5.082-5.761a5.934 5.934 0 0 1 11.867-.084c.025.983-.401 1.846-1.277 1.871c-.936 0-1.374-.668-1.374-1.567v-2.5a1.53 1.53 0 0 0-1.52-1.533H8.715a3.648 3.648 0 1 0 2.695 6.08l.073-.11l.074.121a2.58 2.58 0 0 0 2.2 1.048a2.91 2.91 0 0 0 2.695-3.04a8 8 0 0 0-.217-1.933a7.404 7.404 0 0 0-14.64 1.603a7.497 7.497 0 0 0 7.308 7.405s.549.05 1.167.035a15.8 15.8 0 0 0 8.475-2.528c.036-.025.072.025.048.061a12.44 12.44 0 0 1-9.69 3.963a8.744 8.744 0 0 1-8.9-8.972a9.05 9.05 0 0 1 3.635-7.247a8.86 8.86 0 0 1 5.229-1.726h2.813a7.92 7.92 0 0 0 5.839-2.578a.1.1 0 0 1 .059-.034a.11.11 0 0 1 .12.053a.1.1 0 0 1 .015.067a7.94 7.94 0 0 1-1.227 3.549a.1.1 0 0 0-.014.06a.11.11 0 0 0 .073.095a.1.1 0 0 0 .062.004a8.5 8.5 0 0 0 5.913-4.876a.2.2 0 0 1 .055-.053a.15.15 0 0 1 .147 0a.15.15 0 0 1 .054.053A10.78 10.78 0 0 1 23.834 8.1M8.895 11.628a2.188 2.188 0 1 0 2.188 2.188v-2.042a.16.16 0 0 0-.15-.15Z"/>
+                </svg>
+                <h1 class="text-6xl font-bold text-white dark:text-gray-100">Poker Planning</h1>
+            </div>
+            <p class="text-xl text-white/90 dark:text-gray-300">Collaborate on estimations in real-time</p>
+            <p class="text-sm text-white/60 dark:text-gray-400 mt-2">
+                Built with <a href="https://dotnet.microsoft.com/en-us/apps/aspnet/web-apps/blazor" target="_blank" rel="noopener noreferrer" class="underline hover:text-white/80 transition-colors">Blazor</a>
+            </p>
+        </div>
+
+        @if (!string.IsNullOrEmpty(roomCode))
+        {
+            <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-8 animate-slide-up">
+                <h2 class="text-3xl font-bold text-gray-800 dark:text-gray-100 text-center mb-8">Game Created!</h2>
+                <div class="mb-8">
+                    <label class="block text-sm font-semibold text-gray-600 dark:text-gray-300 mb-2">Share this URL:</label>
+                    <div class="flex gap-2">
+                        <input type="text" readonly value="@gameUrl" 
+                               class="flex-1 px-4 py-3 border-2 border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-700 dark:text-gray-200 focus:outline-none" />
+                        <button @onclick="CopyUrl" 
+                                class="px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors font-semibold">
+                            @(copied ? "✓ Copied!" : "Copy")
+                        </button>
+                    </div>
+                </div>
+                
+                <button @onclick="JoinGame" 
+                        class="w-full px-8 py-4 bg-gradient-to-r @GetButtonClass() text-white rounded-lg font-bold text-lg transform hover:scale-105 transition-all shadow-lg">
+                    Join Game →
+                </button>
+            </div>
+        }
+        else
+        {
+            <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-12 text-center animate-slide-up">
+                <div class="mb-8">
+                    <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Estimation Unit:</label>
+                    <div class="flex gap-2 justify-center flex-wrap">
+                        @foreach (var unit in new[] { "Hours", "Days", "Weeks", "Months", "Story Points" })
+                        {
+                            <button @onclick="() => selectedUnit = unit"
+                                    class="px-4 py-2 rounded-lg font-medium transition-all @(selectedUnit == unit ? $"bg-gradient-to-r {GetButtonClass()} text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600")">
+                                @unit
+                            </button>
+                        }
+                    </div>
+                </div>
+                <button @onclick="CreateGame" disabled="@isCreating"
+                        class="px-12 py-6 bg-gradient-to-r @GetButtonClass() text-white rounded-xl font-bold text-2xl transform hover:scale-105 transition-all shadow-xl disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none">
+                    @if (isCreating)
+                    {
+                        <div class="flex items-center justify-center gap-3">
+                            <div class="w-6 h-6 border-3 border-white/30 border-t-white rounded-full animate-spin"></div>
+                            <span>Creating...</span>
+                        </div>
+                    }
+                    else
+                    {
+                        <span>Create New Game</span>
+                    }
+                </button>
+            </div>
+        }
+    </div>
+</div>
+
+<style>
+    @@keyframes fade-in {
+        from { opacity: 0; transform: translateY(-20px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    @@keyframes slide-up {
+        from { opacity: 0; transform: translateY(30px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    .animate-fade-in {
+        animation: fade-in 0.6s ease-out;
+    }
+    .animate-slide-up {
+        animation: slide-up 0.5s ease-out;
+    }
+</style>
+
+@code {
+    private string roomCode = string.Empty;
+    private string gameUrl = string.Empty;
+    private bool isCreating = false;
+    private bool copied = false;
+    private bool isDarkMode = false;
+    private string selectedUnit = "Hours";
+    private string selectedColorTheme = "purple";
+    private bool showColorPicker = false;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await LoadTheme();
+            await LoadColorTheme();
+        }
+    }
+
+    private async Task LoadTheme()
+    {
+        var theme = await JSRuntime.InvokeAsync<string>("eval", "document.cookie.split('; ').find(row => row.startsWith('theme='))?.split('=')[1] || 'light'");
+        isDarkMode = theme == "dark";
+        await ApplyTheme();
+        StateHasChanged();
+    }
+
+    private async Task ToggleTheme()
+    {
+        isDarkMode = !isDarkMode;
+        await ApplyTheme();
+        var theme = isDarkMode ? "dark" : "light";
+        await JSRuntime.InvokeVoidAsync("eval", $"document.cookie = 'theme={theme}; path=/; max-age=31536000'");
+    }
+
+    private async Task ApplyTheme()
+    {
+        if (isDarkMode)
+        {
+            await JSRuntime.InvokeVoidAsync("eval", "document.documentElement.classList.add('dark')");
+        }
+        else
+        {
+            await JSRuntime.InvokeVoidAsync("eval", "document.documentElement.classList.remove('dark')");
+        }
+    }
+
+    private async Task LoadColorTheme()
+    {
+        var color = await JSRuntime.InvokeAsync<string>("eval", "document.cookie.split('; ').find(row => row.startsWith('colorTheme='))?.split('=')[1] || 'purple'");
+        selectedColorTheme = color;
+        StateHasChanged();
+    }
+
+    private async Task ChangeColorTheme(string theme)
+    {
+        selectedColorTheme = theme;
+        showColorPicker = false;
+        await JSRuntime.InvokeVoidAsync("eval", $"document.cookie = 'colorTheme={theme}; path=/; max-age=31536000'");
+        StateHasChanged();
+    }
+
+    private string GetGradientClasses()
+    {
+        if (colorThemes.TryGetValue(selectedColorTheme, out var theme))
+        {
+            return $"bg-gradient-to-br {theme.GradientFrom} {theme.GradientVia} {theme.GradientTo} dark:from-gray-900 dark:via-gray-800 dark:to-gray-900";
+        }
+        return "bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900";
+    }
+
+    private string GetButtonClass()
+    {
+        if (colorThemes.TryGetValue(selectedColorTheme, out var theme))
+        {
+            return theme.ButtonClass;
+        }
+        return "bg-gradient-to-r from-indigo-600 to-purple-600";
+    }
+
+    private string GetRoomCodeBgClass()
+    {
+        if (colorThemes.TryGetValue(selectedColorTheme, out var theme))
+        {
+            return theme.RoomCodeBg;
+        }
+        return "bg-gradient-to-r from-indigo-100 to-purple-100 dark:from-indigo-900/30 dark:to-purple-900/30";
+    }
+
+    private string GetRoomCodeTextClass()
+    {
+        if (colorThemes.TryGetValue(selectedColorTheme, out var theme))
+        {
+            return theme.RoomCodeText;
+        }
+        return "text-indigo-600 dark:text-indigo-400";
+    }
+
+    private async Task CreateGame()
+    {
+        isCreating = true;
+        try
+        {
+            roomCode = await GameService.CreateGameAsync(selectedUnit);
+            gameUrl = $"{NavigationManager.BaseUri}game/{roomCode}";
+        }
+        finally
+        {
+            isCreating = false;
+        }
+    }
+
+    private void JoinGame()
+    {
+        NavigationManager.NavigateTo($"/game/{roomCode}");
+    }
+
+    private async Task CopyUrl()
+    {
+        // Note: In a real app, you'd use JS interop to copy to clipboard
+        // For now, user can manually copy
+        copied = true;
+        await Task.Delay(2000);
+        copied = false;
+    }
+
+    private class ColorTheme
+    {
+        public string Name { get; set; } = "";
+        public string DotClass { get; set; } = "";
+        public string GradientFrom { get; set; } = "";
+        public string GradientVia { get; set; } = "";
+        public string GradientTo { get; set; } = "";
+        public string ButtonClass { get; set; } = "";
+        public string RoomCodeBg { get; set; } = "";
+        public string RoomCodeText { get; set; } = "";
+    }
+
+    private Dictionary<string, ColorTheme> colorThemes = new Dictionary<string, ColorTheme>
+    {
+        ["purple"] = new ColorTheme
+        {
+            Name = "Purple",
+            DotClass = "bg-purple-500",
+            GradientFrom = "from-indigo-600",
+            GradientVia = "via-purple-600",
+            GradientTo = "to-pink-500",
+            ButtonClass = "from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700",
+            RoomCodeBg = "bg-indigo-600",
+            RoomCodeText = "text-indigo-100"
+        },
+        ["blue"] = new ColorTheme
+        {
+            Name = "Blue",
+            DotClass = "bg-blue-500",
+            GradientFrom = "from-blue-600",
+            GradientVia = "via-cyan-600",
+            GradientTo = "to-teal-500",
+            ButtonClass = "from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700",
+            RoomCodeBg = "bg-blue-600",
+            RoomCodeText = "text-blue-100"
+        },
+        ["green"] = new ColorTheme
+        {
+            Name = "Green",
+            DotClass = "bg-green-500",
+            GradientFrom = "from-emerald-600",
+            GradientVia = "via-green-600",
+            GradientTo = "to-teal-500",
+            ButtonClass = "from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700",
+            RoomCodeBg = "bg-emerald-600",
+            RoomCodeText = "text-emerald-100"
+        },
+        ["orange"] = new ColorTheme
+        {
+            Name = "Orange",
+            DotClass = "bg-orange-500",
+            GradientFrom = "from-orange-600",
+            GradientVia = "via-amber-600",
+            GradientTo = "to-yellow-500",
+            ButtonClass = "from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700",
+            RoomCodeBg = "bg-orange-600",
+            RoomCodeText = "text-orange-100"
+        },
+        ["pink"] = new ColorTheme
+        {
+            Name = "Pink",
+            DotClass = "bg-pink-500",
+            GradientFrom = "from-pink-600",
+            GradientVia = "via-rose-600",
+            GradientTo = "to-red-500",
+            ButtonClass = "from-pink-600 to-rose-600 hover:from-pink-700 hover:to-rose-700",
+            RoomCodeBg = "bg-pink-600",
+            RoomCodeText = "text-pink-100"
+        }
+    };
+}
+

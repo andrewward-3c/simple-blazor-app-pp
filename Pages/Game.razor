@@ -1,0 +1,611 @@
+@page "/game/{roomCode}"
+@using Microsoft.AspNetCore.SignalR.Client
+@using PokerPlanning.Services
+@using PokerPlanning.Models
+@using Microsoft.JSInterop
+@inject IGameService GameService
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JSRuntime
+@implements IAsyncDisposable
+
+<PageTitle>Game @RoomCode - Poker Planning</PageTitle>
+
+<div class="min-h-screen @GetGradientClasses() dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 p-4">
+    @if (!joined)
+    {
+        <div class="max-w-md mx-auto mt-20">
+            <!-- Theme Toggle -->
+            <div class="flex justify-end mb-4">
+                <button @onclick="ToggleTheme" 
+                        class="p-3 bg-white/10 dark:bg-gray-800/50 backdrop-blur-md rounded-full text-white hover:bg-white/20 dark:hover:bg-gray-700/50 transition-all">
+                    @if (isDarkMode)
+                    {
+                        <span class="text-2xl">☀️</span>
+                    }
+                    else
+                    {
+                        <span class="text-2xl">🌙</span>
+                    }
+                </button>
+            </div>
+            <div class="bg-white dark:bg-gray-800 dark:bg-gray-800 rounded-2xl shadow-2xl p-8">
+                <h2 class="text-3xl font-bold text-gray-800 dark:text-gray-100 text-center mb-6">Join Game</h2>
+                
+                @if (!string.IsNullOrEmpty(errorMessage))
+                {
+                    <div class="bg-red-50 dark:bg-red-900/30 border-l-4 border-red-500 text-red-700 dark:text-red-300 p-4 mb-6 rounded">
+                        <div class="mb-2">@errorMessage</div>
+                        <button @onclick="GoToHome" 
+                                class="text-sm underline hover:no-underline">
+                            ← Back to Home
+                        </button>
+                    </div>
+                }
+                
+                <div class="mb-6">
+                    <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Your Display Name:</label>
+                    <input type="text" @bind="displayName" @bind:event="oninput" 
+                           placeholder="Enter your name" maxlength="50"
+                           class="w-full px-4 py-3 border-2 border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-all" />
+                </div>
+                
+                <div class="mb-6">
+                    <label class="flex items-center gap-3 cursor-pointer">
+                        <input type="checkbox" @bind="isSpectator" 
+                               class="w-5 h-5 text-indigo-600 border-gray-300 dark:border-gray-600 rounded focus:ring-indigo-500" />
+                        <div>
+                            <span class="text-sm font-semibold text-gray-700 dark:text-gray-300">Join as Spectator</span>
+                            <p class="text-xs text-gray-500 dark:text-gray-400">Watch the game without voting</p>
+                        </div>
+                    </label>
+                </div>
+                
+                <button @onclick="JoinGameAsync" 
+                        disabled="@(string.IsNullOrWhiteSpace(displayName) || isJoining)"
+                        class="w-full px-6 py-4 bg-gradient-to-r @GetButtonClass() text-white rounded-lg font-bold text-lg transform hover:scale-105 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none">
+                    @(isJoining ? "Joining..." : "Join Game")
+                </button>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="max-w-7xl mx-auto">
+            <!-- Theme Toggle -->
+            <div class="flex justify-end mb-4">
+                <button @onclick="ToggleTheme" 
+                        class="p-3 bg-white/10 dark:bg-gray-800/50 backdrop-blur-md rounded-full text-white hover:bg-white/20 dark:hover:bg-gray-700/50 transition-all">
+                    @if (isDarkMode)
+                    {
+                        <span class="text-2xl">☀️</span>
+                    }
+                    else
+                    {
+                        <span class="text-2xl">🌙</span>
+                    }
+                </button>
+            </div>
+            <!-- Header -->
+            <div class="bg-white/10 dark:bg-gray-800/30 dark:bg-gray-800/30 backdrop-blur-md rounded-2xl shadow-xl p-6 mb-6">
+                <div class="flex justify-between items-center flex-wrap gap-4">
+                    <div class="flex gap-3 items-center">
+                        @if (isCreator && !gameState?.IsRevealed == true)
+                        {
+                            <div class="relative">
+                                <button @onclick="() => showUnitSelector = !showUnitSelector"
+                                        class="px-4 py-2 bg-white/20 hover:bg-white/30 text-white rounded-lg font-semibold transition-all">
+                                    Change Unit
+                                </button>
+                                @if (showUnitSelector)
+                                {
+                                    <div class="absolute right-0 mt-2 bg-white dark:bg-gray-800 rounded-lg shadow-xl p-2 z-10 min-w-[150px] border border-gray-200 dark:border-gray-700">
+                                        @foreach (var unit in new[] { "Hours", "Days", "Weeks", "Months", "Story Points" })
+                                        {
+                                            <button @onclick="() => ChangeUnit(unit)"
+                                                    class="block w-full text-left px-4 py-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-800 dark:text-gray-200 transition-colors">
+                                                @unit
+                                            </button>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+                        <div class="bg-white/20 px-4 py-2 rounded-full">
+                            <span class="text-white font-semibold">@gameState?.Participants.Count(p => !p.IsSpectator) players</span>
+                            @if (gameState?.Participants.Any(p => p.IsSpectator) == true)
+                            {
+                                <span class="text-white/80 text-sm ml-2">+ @gameState.Participants.Count(p => p.IsSpectator) spectators</span>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Participants Panel -->
+                <div class="lg:col-span-1">
+                    <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-6">
+                        <h3 class="text-xl font-bold text-gray-800 dark:text-gray-100 border-b-2 border-indigo-600 pb-3 mb-4">Players</h3>
+                        @if (gameState != null)
+                        {
+                            <ul class="space-y-2">
+                                @foreach (var participant in gameState.Participants.Where(p => !p.IsSpectator))
+                                {
+                                    <li class="flex justify-between items-center p-3 rounded-lg transition-all @(participant.HasVoted ? "bg-green-50 dark:bg-green-900/30 border-l-4 border-green-500" : "bg-gray-50 dark:bg-gray-700")">
+                                        <div class="flex items-center gap-2">
+                                            <span class="font-medium text-gray-800 dark:text-gray-200">@participant.DisplayName</span>
+                                            @if (participant.IsCreator)
+                                            {
+                                                <span class="@GetCreatorBadgeClass() text-white text-xs px-2 py-1 rounded-full">Creator</span>
+                                            }
+                                        </div>
+                                        <div>
+                                            @if (participant.HasVoted)
+                                            {
+                                                <span class="text-green-600 text-xl">✓</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-gray-300 text-xl">○</span>
+                                            }
+                                        </div>
+                                    </li>
+                                }
+                            </ul>
+                            
+                            @if (gameState.Participants.Any(p => p.IsSpectator))
+                            {
+                                <h4 class="text-sm font-semibold text-gray-600 dark:text-gray-400 border-b border-gray-300 dark:border-gray-600 pb-2 mt-6 mb-3">Spectators</h4>
+                                <ul class="space-y-2">
+                                    @foreach (var spectator in gameState.Participants.Where(p => p.IsSpectator))
+                                    {
+                                        <li class="flex items-center gap-2 p-2 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                                            <span class="text-gray-400 text-sm">👁️</span>
+                                            <span class="text-sm text-gray-600 dark:text-gray-300">@spectator.DisplayName</span>
+                                        </li>
+                                    }
+                                </ul>
+                            }
+                        }
+                    </div>
+                </div>
+
+                <!-- Voting/Results Panel -->
+                <div class="lg:col-span-2">
+                    <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-8">
+                        @if (isSpectator)
+                        {
+                            <div class="text-center py-12">
+                                <div class="text-6xl mb-4">👁️</div>
+                                <h3 class="text-2xl font-bold text-gray-700 dark:text-gray-300 mb-2">Spectator Mode</h3>
+                                <p class="text-gray-500 dark:text-gray-400">You are watching this game. @(gameState?.IsRevealed == true ? "Votes have been revealed." : "Waiting for players to vote...")</p>
+                            </div>
+                        }
+                        else if (gameState?.IsRevealed == false)
+                        {
+                            <h3 class="text-2xl font-bold text-gray-800 dark:text-gray-100 border-b-2 border-indigo-600 pb-3 mb-6">Select Your Estimate</h3>
+                            
+                            <div class="mb-8">
+                                <div class="flex gap-4">
+                                    <input type="number" @bind="estimateValue" @bind:event="oninput"
+                                           placeholder="@($"Enter estimate ({gameState?.EstimationUnit})")"
+                                           min="0" step="0.5"
+                                           class="flex-1 px-6 py-4 border-2 border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-xl focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-all" />
+                                    <button @onclick="SubmitVoteAsync" 
+                                            disabled="@string.IsNullOrWhiteSpace(estimateValue)"
+                                            class="px-8 py-4 bg-gradient-to-r @GetButtonClass() text-white rounded-lg font-bold transform hover:scale-105 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none">
+                                        Submit Vote
+                                    </button>
+                                </div>
+                            </div>
+
+                            @if (isCreator)
+                            {
+                                <div class="border-t-2 border-gray-200 dark:border-gray-600 pt-6">
+                                    <h4 class="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-4">Creator Controls</h4>
+                                    <div class="flex gap-4 flex-wrap">
+                                        <button @onclick="RevealVotesAsync" 
+                                                disabled="@(!AllVotesIn())"
+                                                class="px-6 py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-lg font-semibold hover:from-green-600 hover:to-emerald-700 transform hover:scale-105 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none">
+                                            Reveal Votes @(AllVotesIn() ? "" : $"({VotesInCount()}/{gameState?.Participants.Count(p => !p.IsSpectator)})")
+                                        </button>
+                                        <button @onclick="ResetVotesAsync"
+                                                class="px-6 py-3 bg-gray-600 text-white rounded-lg font-semibold hover:bg-gray-700 transform hover:scale-105 transition-all shadow-lg">
+                                            Reset Votes
+                                        </button>
+                                    </div>
+                                </div>
+                            }
+                        }
+                        else if (gameState?.IsRevealed == true)
+                        {
+                            <h3 class="text-2xl font-bold text-gray-800 dark:text-gray-100 border-b-2 border-indigo-600 pb-3 mb-6">Results</h3>
+                            
+                            @if (gameState.Average.HasValue)
+                            {
+                                <div class="bg-gradient-to-r @GetButtonClass() rounded-xl p-8 text-center mb-8">
+                                    <div class="text-white text-lg mb-2">Average:</div>
+                                    <div class="text-white text-6xl font-bold">@gameState.Average.Value</div>
+                                </div>
+                            }
+
+                            <div class="mb-8">
+                                <h4 class="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-4">All Votes</h4>
+                                <ul class="space-y-2">
+                                    @foreach (var vote in gameState.Votes.OrderBy(v => v.DisplayName))
+                                    {
+                                        <li class="flex justify-between items-center p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                                            <span class="font-medium text-gray-700 dark:text-gray-300">@vote.DisplayName:</span>
+                                            <span class="text-2xl font-bold text-indigo-600 dark:text-indigo-400">@vote.EstimateValue</span>
+                                        </li>
+                                    }
+                                </ul>
+                            </div>
+
+                            @if (isCreator)
+                            {
+                                <div class="border-t-2 border-gray-200 pt-6">
+                                    <button @onclick="StartNewVoteAsync"
+                                            class="w-full px-6 py-4 bg-gradient-to-r @GetButtonClass() text-white rounded-lg font-bold text-lg transform hover:scale-105 transition-all shadow-lg">
+                                        Start New Vote
+                                    </button>
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public string RoomCode { get; set; } = string.Empty;
+
+    private HubConnection? hubConnection;
+    private string displayName = string.Empty;
+    private string estimateValue = string.Empty;
+    private bool joined = false;
+    private bool isJoining = false;
+    private bool isCreator = false;
+    private bool isSpectator = false;
+    private bool isDarkMode = false;
+    private bool showUnitSelector = false;
+    private string selectedColorTheme = "purple";
+    private int participantId;
+    private string errorMessage = string.Empty;
+    private GameState? gameState;
+
+    protected override async Task OnInitializedAsync()
+    {
+        hubConnection = new HubConnectionBuilder()
+            .WithUrl(NavigationManager.ToAbsoluteUri("/gamehub"))
+            .WithAutomaticReconnect()
+            .Build();
+
+        hubConnection.On<GameState>("OnParticipantJoined", async (state) =>
+        {
+            await InvokeAsync(() =>
+            {
+                gameState = state;
+                StateHasChanged();
+            });
+        });
+
+        hubConnection.On<GameState>("OnVoteSubmitted", async (state) =>
+        {
+            await InvokeAsync(() =>
+            {
+                gameState = state;
+                StateHasChanged();
+            });
+        });
+
+        hubConnection.On<GameState>("OnVotesRevealed", async (state) =>
+        {
+            await InvokeAsync(() =>
+            {
+                gameState = state;
+                StateHasChanged();
+            });
+        });
+
+        hubConnection.On<GameState>("OnVotesReset", async (state) =>
+        {
+            await InvokeAsync(() =>
+            {
+                gameState = state;
+                estimateValue = string.Empty;
+                StateHasChanged();
+            });
+        });
+
+        hubConnection.On<GameState>("OnNewVoteStarted", async (state) =>
+        {
+            await InvokeAsync(() =>
+            {
+                gameState = state;
+                estimateValue = string.Empty;
+                StateHasChanged();
+            });
+        });
+
+        hubConnection.On<GameState>("OnEstimationUnitChanged", async (state) =>
+        {
+            await InvokeAsync(() =>
+            {
+                gameState = state;
+                showUnitSelector = false;
+                StateHasChanged();
+            });
+        });
+
+        await hubConnection.StartAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await LoadTheme();
+            await LoadDisplayName();
+            await LoadColorTheme();
+        }
+    }
+
+    private async Task LoadTheme()
+    {
+        var theme = await JSRuntime.InvokeAsync<string>("eval", "document.cookie.split('; ').find(row => row.startsWith('theme='))?.split('=')[1] || 'light'");
+        isDarkMode = theme == "dark";
+        await ApplyTheme();
+        StateHasChanged();
+    }
+
+    private async Task LoadDisplayName()
+    {
+        var savedName = await JSRuntime.InvokeAsync<string>("eval", "document.cookie.split('; ').find(row => row.startsWith('displayName='))?.split('=')[1] || ''");
+        if (!string.IsNullOrEmpty(savedName))
+        {
+            displayName = Uri.UnescapeDataString(savedName);
+            StateHasChanged();
+        }
+    }
+
+    private async Task ToggleTheme()
+    {
+        isDarkMode = !isDarkMode;
+        await ApplyTheme();
+        var theme = isDarkMode ? "dark" : "light";
+        await JSRuntime.InvokeVoidAsync("eval", $"document.cookie = 'theme={theme}; path=/; max-age=31536000'");
+    }
+
+    private async Task ApplyTheme()
+    {
+        if (isDarkMode)
+        {
+            await JSRuntime.InvokeVoidAsync("eval", "document.documentElement.classList.add('dark')");
+        }
+        else
+        {
+            await JSRuntime.InvokeVoidAsync("eval", "document.documentElement.classList.remove('dark')");
+        }
+    }
+
+    private async Task JoinGameAsync()
+    {
+        if (string.IsNullOrWhiteSpace(displayName) || hubConnection == null)
+            return;
+
+        isJoining = true;
+        errorMessage = string.Empty;
+
+        try
+        {
+            var success = await hubConnection.InvokeAsync<bool>("JoinGame", RoomCode, displayName, isSpectator);
+            
+            if (success)
+            {
+                // Save display name to cookie
+                await JSRuntime.InvokeVoidAsync("eval", $"document.cookie = 'displayName={Uri.EscapeDataString(displayName)}; path=/; max-age=31536000'");
+                
+                joined = true;
+                participantId = await GameService.JoinGameAsync(RoomCode, displayName, hubConnection.ConnectionId ?? "", isSpectator);
+                gameState = await GameService.GetGameStateAsync(RoomCode);
+                
+                // Check if this user is the creator
+                var participant = gameState.Participants.FirstOrDefault(p => p.Id == participantId);
+                if (participant != null)
+                {
+                    isCreator = participant.IsCreator;
+                }
+            }
+            else
+            {
+                errorMessage = "Game not found. Please check the room code.";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error joining game: {ex.Message}";
+        }
+        finally
+        {
+            isJoining = false;
+        }
+    }
+
+    private async Task SubmitVoteAsync()
+    {
+        if (string.IsNullOrWhiteSpace(estimateValue) || hubConnection == null)
+            return;
+
+        await hubConnection.InvokeAsync("SubmitVote", RoomCode, participantId, estimateValue);
+    }
+
+    private async Task RevealVotesAsync()
+    {
+        if (hubConnection == null)
+            return;
+
+        await hubConnection.InvokeAsync("RevealVotes", RoomCode);
+    }
+
+    private async Task ResetVotesAsync()
+    {
+        if (hubConnection == null)
+            return;
+
+        await hubConnection.InvokeAsync("ResetVotes", RoomCode);
+    }
+
+    private async Task StartNewVoteAsync()
+    {
+        if (hubConnection == null)
+            return;
+
+        await hubConnection.InvokeAsync("StartNewVote", RoomCode);
+    }
+
+    private bool AllVotesIn()
+    {
+        if (gameState == null) return false;
+        var players = gameState.Participants.Where(p => !p.IsSpectator).ToList();
+        return players.Count > 0 && players.All(p => p.HasVoted);
+    }
+
+    private int VotesInCount()
+    {
+        if (gameState == null) return 0;
+        return gameState.Participants.Count(p => !p.IsSpectator && p.HasVoted);
+    }
+
+    private async Task ChangeUnit(string unit)
+    {
+        if (hubConnection == null)
+            return;
+
+        await hubConnection.InvokeAsync("ChangeEstimationUnit", RoomCode, unit);
+    }
+
+    private void GoToHome()
+    {
+        NavigationManager.NavigateTo("/");
+    }
+
+    private async Task LoadColorTheme()
+    {
+        var theme = await JSRuntime.InvokeAsync<string>("eval", "document.cookie.split('; ').find(row => row.startsWith('colorTheme='))?.split('=')[1] || 'purple'");
+        selectedColorTheme = theme;
+        StateHasChanged();
+    }
+
+    private string GetGradientClasses()
+    {
+        if (colorThemes.TryGetValue(selectedColorTheme, out var theme))
+        {
+            return $"bg-gradient-to-br {theme.GradientFrom} {theme.GradientVia} {theme.GradientTo}";
+        }
+        return "bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500";
+    }
+
+    private string GetButtonClass()
+    {
+        if (colorThemes.TryGetValue(selectedColorTheme, out var theme))
+        {
+            return theme.ButtonClass;
+        }
+        return "from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700";
+    }
+
+    private string GetCreatorBadgeClass()
+    {
+        return selectedColorTheme switch
+        {
+            "blue" => "bg-blue-600",
+            "green" => "bg-emerald-600",
+            "orange" => "bg-orange-600",
+            "pink" => "bg-pink-600",
+            _ => "bg-indigo-600"
+        };
+    }
+
+    private class ColorTheme
+    {
+        public string Name { get; set; } = "";
+        public string DotClass { get; set; } = "";
+        public string GradientFrom { get; set; } = "";
+        public string GradientVia { get; set; } = "";
+        public string GradientTo { get; set; } = "";
+        public string ButtonClass { get; set; } = "";
+        public string RoomCodeBg { get; set; } = "";
+        public string RoomCodeText { get; set; } = "";
+    }
+
+    private Dictionary<string, ColorTheme> colorThemes = new Dictionary<string, ColorTheme>
+    {
+        ["purple"] = new ColorTheme
+        {
+            Name = "Purple",
+            DotClass = "bg-purple-500",
+            GradientFrom = "from-indigo-600",
+            GradientVia = "via-purple-600",
+            GradientTo = "to-pink-500",
+            ButtonClass = "from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700",
+            RoomCodeBg = "bg-indigo-600",
+            RoomCodeText = "text-indigo-100"
+        },
+        ["blue"] = new ColorTheme
+        {
+            Name = "Blue",
+            DotClass = "bg-blue-500",
+            GradientFrom = "from-blue-600",
+            GradientVia = "via-cyan-600",
+            GradientTo = "to-teal-500",
+            ButtonClass = "from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700",
+            RoomCodeBg = "bg-blue-600",
+            RoomCodeText = "text-blue-100"
+        },
+        ["green"] = new ColorTheme
+        {
+            Name = "Green",
+            DotClass = "bg-green-500",
+            GradientFrom = "from-emerald-600",
+            GradientVia = "via-green-600",
+            GradientTo = "to-teal-500",
+            ButtonClass = "from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700",
+            RoomCodeBg = "bg-emerald-600",
+            RoomCodeText = "text-emerald-100"
+        },
+        ["orange"] = new ColorTheme
+        {
+            Name = "Orange",
+            DotClass = "bg-orange-500",
+            GradientFrom = "from-orange-600",
+            GradientVia = "via-amber-600",
+            GradientTo = "to-yellow-500",
+            ButtonClass = "from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700",
+            RoomCodeBg = "bg-orange-600",
+            RoomCodeText = "text-orange-100"
+        },
+        ["pink"] = new ColorTheme
+        {
+            Name = "Pink",
+            DotClass = "bg-pink-500",
+            GradientFrom = "from-pink-600",
+            GradientVia = "via-rose-600",
+            GradientTo = "to-red-500",
+            ButtonClass = "from-pink-600 to-rose-600 hover:from-pink-700 hover:to-rose-700",
+            RoomCodeBg = "bg-pink-600",
+            RoomCodeText = "text-pink-100"
+        }
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        if (hubConnection != null)
+        {
+            await hubConnection.DisposeAsync();
+        }
+    }
+}
