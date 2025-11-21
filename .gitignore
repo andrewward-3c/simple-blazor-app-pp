@@ -1,2 +1,7 @@
 bin
 obj
+node_modules
+.vs
+pokerplanning.db-shm
+pokerplanning.db
+pokerplanning.db-wal
